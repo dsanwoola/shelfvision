@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#0b1220">
+  <title>ShelfVision — AI Kiosk Inventory Counts</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="css/style.css">
+  <!-- On-device AI (cached by the service worker after first load) -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet@2.1.1/dist/mobilenet.min.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">🛒 ShelfVision</div>
+    <div id="model-status" class="pill">Loading AI…</div>
+    <div id="trained-count" class="pill subtle">0 items trained</div>
+  </header>
+
+  <main>
+    <!-- ============================ AUDIT ============================ -->
+    <section id="view-audit" class="view active">
+      <label class="field">
+        <span>Kiosk warehouse</span>
+        <input id="audit-warehouse" list="warehouse-list" placeholder="e.g. Kiosk 1 - MyCo" autocomplete="off">
+        <datalist id="warehouse-list"></datalist>
+      </label>
+
+      <div class="video-wrap">
+        <video id="audit-video" playsinline muted></video>
+        <canvas id="audit-overlay"></canvas>
+      </div>
+      <progress id="video-progress" class="hidden" max="1" value="0"></progress>
+
+      <div class="btn-row">
+        <button id="btn-audit-camera" class="btn">📷 Start camera</button>
+        <button id="btn-audit-count" class="btn primary" disabled>▶ Start counting</button>
+        <label class="btn ghost">
+          🎞 Analyse recorded video
+          <input id="audit-video-file" type="file" accept="video/*" hidden>
+        </label>
+      </div>
+      <p class="hint">Pan the camera slowly across each shelf, one pass, left to right. Items are identified,
+        tracked between frames and each unit is counted once.</p>
+
+      <h3>Live tally</h3>
+      <ul id="live-tally" class="tally"><li class="hint-li">Start counting to see items appear here.</li></ul>
+
+      <div id="audit-review" class="card hidden">
+        <h3>Review count</h3>
+        <table class="review">
+          <thead><tr><th>Item</th><th>Name</th><th>Qty</th><th>Δ vs ERPNext</th><th></th></tr></thead>
+          <tbody id="review-body"></tbody>
+        </table>
+        <p id="review-unknown" class="hint"></p>
+        <div class="btn-row">
+          <button id="btn-add-line" class="btn ghost">＋ Add line</button>
+          <button id="btn-save-audit" class="btn">💾 Save locally</button>
+          <button id="btn-export-csv" class="btn">⬇ Export CSV</button>
+          <button id="btn-push-erpnext" class="btn primary">⬆ Push to ERPNext</button>
+        </div>
+        <p id="push-result" class="hint"></p>
+      </div>
+    </section>
+
+    <!-- ============================ TRAIN ============================ -->
+    <section id="view-train" class="view">
+      <label class="field">
+        <span>Item to train (from ERPNext sync, or type a new code)</span>
+        <input id="train-item" list="item-list" placeholder="Item code…" autocomplete="off">
+        <datalist id="item-list"></datalist>
+      </label>
+
+      <div class="video-wrap">
+        <video id="train-video" playsinline muted></video>
+        <div id="capture-flash" class="flash"></div>
+      </div>
+
+      <div class="btn-row">
+        <button id="btn-train-camera" class="btn">📷 Start camera</button>
+        <button id="btn-capture" class="btn primary" disabled>📸 Capture sample</button>
+        <label class="btn ghost">
+          🖼 Import photos
+          <input id="train-files" type="file" accept="image/*" multiple hidden>
+        </label>
+      </div>
+      <p class="hint">Hold one unit in front of the camera and capture <b>8–15 samples</b> from different angles
+        and distances. The largest detected object in the frame is auto-cropped and learned on-device.</p>
+
+      <h3>Samples for selected item</h3>
+      <div id="sample-gallery" class="gallery"></div>
+
+      <h3>Trained items</h3>
+      <ul id="train-summary" class="tally"></ul>
+    </section>
+
+    <!-- =========================== HISTORY =========================== -->
+    <section id="view-history" class="view">
+      <h3>Audit history</h3>
+      <ul id="audit-history" class="history"></ul>
+    </section>
+
+    <!-- =========================== SETTINGS ========================== -->
+    <section id="view-settings" class="view">
+      <h3>ERPNext 15 connection</h3>
+      <label class="field"><span>Site URL</span>
+        <input id="set-url" placeholder="https://erp.mycompany.com" autocomplete="off"></label>
+      <label class="field"><span>API key</span>
+        <input id="set-key" autocomplete="off"></label>
+      <label class="field"><span>API secret</span>
+        <input id="set-secret" type="password" autocomplete="off"></label>
+      <label class="field"><span>Company</span>
+        <input id="set-company" list="company-list" autocomplete="off">
+        <datalist id="company-list"></datalist></label>
+
+      <div class="btn-row">
+        <button id="btn-save-settings" class="btn">💾 Save</button>
+        <button id="btn-test-conn" class="btn">🔌 Test connection</button>
+        <button id="btn-sync" class="btn primary">🔄 Sync items & warehouses</button>
+      </div>
+      <p id="conn-status" class="hint"></p>
+      <p id="sync-status" class="hint"></p>
+
+      <h3>Recognition</h3>
+      <label class="field">
+        <span>Match strictness (<span id="threshold-value">0.72</span>) — higher = fewer false matches</span>
+        <input id="set-threshold" type="range" min="0.5" max="0.9" step="0.01" value="0.72">
+      </label>
+
+      <h3>Training data</h3>
+      <div class="btn-row">
+        <button id="btn-export-training" class="btn">⬇ Export backup</button>
+        <label class="btn ghost">⬆ Import backup
+          <input id="import-training-file" type="file" accept="application/json" hidden>
+        </label>
+      </div>
+      <p class="hint">Training data, item catalog and audit history are stored on this device only.
+        Export a backup to move the trained model to another phone.</p>
+
+      <h3>How the ERPNext integration works</h3>
+      <p class="hint">Counts are pushed as a <b>draft Stock Reconciliation</b> (Stock module — the same doctype
+        ERPNext uses for physical inventory counts and POS warehouse reconciliation). Review and submit the draft
+        inside ERPNext to post the adjustment. Create the API key/secret under
+        <i>User → API Access</i> for a user with Stock Manager role, and allow CORS for this app's origin
+        (<code>allow_cors</code> in <code>site_config.json</code>).</p>
+    </section>
+  </main>
+
+  <nav class="bottom-nav">
+    <button class="nav-btn active" data-view="audit">📹<span>Audit</span></button>
+    <button class="nav-btn" data-view="train">🎓<span>Train</span></button>
+    <button class="nav-btn" data-view="history">🗂<span>History</span></button>
+    <button class="nav-btn" data-view="settings">⚙️<span>Settings</span></button>
+  </nav>
+
+  <div id="toasts"></div>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
