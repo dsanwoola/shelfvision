@@ -58,8 +58,10 @@ self.addEventListener('fetch', (e) => {
 
   if (url.origin === location.origin) {
     // Network-first for the app shell so updates land, cache fallback offline.
+    // cache:'no-cache' forces revalidation so stale HTTP-cache copies of the
+    // JS modules are never served after a deploy.
     e.respondWith(
-      fetch(e.request)
+      fetch(e.request, { cache: 'no-cache' })
         .then((res) => {
           const copy = res.clone();
           caches.open(SHELL_CACHE).then((c) => c.put(e.request, copy));

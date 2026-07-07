@@ -99,8 +99,18 @@ export async function fetchStockLevels(warehouse) {
   return map;
 }
 
+async function findAccount(company, accountName) {
+  const fields = encodeURIComponent(JSON.stringify(['name']));
+  const filters = encodeURIComponent(JSON.stringify([['company', '=', company], ['account_name', '=', accountName]]));
+  const r = await api(`/api/resource/Account?fields=${fields}&filters=${filters}&limit_page_length=1`);
+  return r.data[0]?.name || null;
+}
+
 // Create a DRAFT Stock Reconciliation so the counts can be reviewed and
 // submitted inside ERPNext (draft = docstatus 0, no ledger impact yet).
+// When an item has no stock history yet, ERPNext treats the row as an opening
+// entry and requires an Asset/Liability difference account — in that case we
+// retry with the company's "Temporary Opening" account automatically.
 export async function createStockReconciliation({ company, warehouse, lines, remarks }) {
   const now = new Date();
   const doc = {
@@ -113,11 +123,25 @@ export async function createStockReconciliation({ company, warehouse, lines, rem
     items: lines.map((l) => ({ item_code: l.item_code, warehouse, qty: l.qty })),
   };
   if (remarks) doc.remarks = remarks;
-  const r = await api('/api/resource/Stock Reconciliation', {
-    method: 'POST',
-    body: JSON.stringify(doc),
-  });
-  return r.data; // includes .name (e.g. MAT-RECO-2026-00001)
+  const post = async () => {
+    const r = await api('/api/resource/Stock Reconciliation', {
+      method: 'POST',
+      body: JSON.stringify(doc),
+    });
+    return r.data; // includes .name (e.g. MAT-RECO-2026-00001)
+  };
+  try {
+    return await post();
+  } catch (e) {
+    if (/Opening Entry/i.test(e.message)) {
+      const acc = await findAccount(company, 'Temporary Opening');
+      if (acc) {
+        doc.expense_account = acc;
+        return await post();
+      }
+    }
+    throw e;
+  }
 }
 
 export function docUrl(doctype, name) {

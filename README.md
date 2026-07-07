@@ -23,12 +23,24 @@ costs, works offline after the first load, and shelf footage never leaves the ph
    REST API so a supervisor reviews and submits it inside ERPNext before the ledger moves.
    CSV export and local audit history are also available.
 
+> **Integration status:** verified end-to-end against a live ERPNext 15 (v15 Docker images,
+> site `frontend`) on 2026-07-07 — connection/auth, item & warehouse sync, live variance
+> against Bin, and a pushed count that created draft `MAT-RECO-2026-00001`; after supervisor
+> submit, warehouse Bin quantities matched the app's counts exactly.
+
 ## Running it
 
 Static app — serve the folder over HTTP (camera needs `localhost` or HTTPS):
 
 ```
 npx serve -l 4173 .
+```
+
+Or use the bundled dev server that also **proxies `/api/*` to ERPNext on the same origin**
+(no CORS setup needed — in the app Settings, use this server's own URL as the Site URL):
+
+```
+python dev-proxy.py 4180 https://erp.mycompany.com
 ```
 
 Then open http://localhost:4173. For kiosk phones, deploy to any static host with HTTPS
@@ -50,7 +62,12 @@ console for `SELFTEST PASS`.
    `Stock Reconciliation` documents (Stock → Stock Reconciliation) with an audit remark.
 
 API endpoints used: `frappe.auth.get_logged_user` (test), `Item`, `Warehouse`, `Company`,
-`Bin` (variance), `Stock Reconciliation` (POST draft).
+`Bin` (variance), `Account`, `Stock Reconciliation` (POST draft).
+
+First count of an item with no stock history is an *opening entry* in ERPNext — the app
+detects that rejection and automatically retries with the company's **Temporary Opening**
+account as the difference account. Brand-new items still need a valuation rate entered in
+ERPNext before the draft can be submitted (deliberate: supervisors control valuation).
 
 > The API secret is kept in the browser's localStorage — use a dedicated least-privilege
 > API user, not an administrator account.
@@ -65,6 +82,21 @@ API endpoints used: `frappe.auth.get_logged_user` (test), `Item`, `Warehouse`, `
 - `js/db.js` — IndexedDB (catalog, training samples, audit history) + backup export/import
 - `js/selftest.js` — logic self-tests (`?selftest=1`)
 - `sw.js`, `manifest.json`, `icon.svg` — offline/PWA layer
+- `dev-proxy.py` — optional dev server with same-origin `/api` proxy to ERPNext (no CORS)
+
+## Local test instance
+
+A disposable ERPNext 15 test instance (used to verify this integration) runs in WSL Ubuntu
+via Docker (`/opt/erpnext/pwd.yml`, images pinned to `frappe/erpnext:v15`):
+
+```
+wsl -d Ubuntu -u root -- docker compose -f /opt/erpnext/pwd.yml -p erpnext up -d
+```
+
+Site `frontend` on http://localhost:8080 — web login `Administrator` / `admin`,
+API token `shelfvision:shelfvision-secret-2026`, company **Deen Kiosks Ltd**, warehouse
+**Kiosk 1 - DKL**, four `KIOSK-*` test items. Note: WSL shuts down idle distros, which
+stops the containers — rerun the command above (or keep a WSL shell open) to bring it back.
 
 ## Counting tips
 
