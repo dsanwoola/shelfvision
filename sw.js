@@ -2,7 +2,7 @@
 // AI model files (CDN scripts and TF model weights) so audits work offline
 // after the first online run.
 
-const SHELL_CACHE = 'shelfvision-shell-v1';
+const SHELL_CACHE = 'shelfvision-shell-v2';
 const RUNTIME_CACHE = 'shelfvision-runtime-v1';
 const SHELL = [
   './',
@@ -16,6 +16,8 @@ const SHELL = [
   './js/camera.js',
   './manifest.json',
   './icon.svg',
+  './icon-192.png',
+  './icon-512.png',
 ];
 
 self.addEventListener('install', (e) => {

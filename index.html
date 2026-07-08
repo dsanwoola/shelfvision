@@ -7,6 +7,7 @@
   <title>ShelfVision — AI Kiosk Inventory Counts</title>
   <link rel="manifest" href="manifest.json">
   <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icon-192.png">
   <link rel="stylesheet" href="css/style.css">
   <!-- On-device AI (cached by the service worker after first load) -->
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
@@ -105,7 +106,7 @@
 
     <!-- =========================== SETTINGS ========================== -->
     <section id="view-settings" class="view">
-      <h3>ERPNext 15 connection</h3>
+      <h3>ERPNext connection (v14/v15)</h3>
       <label class="field"><span>Site URL</span>
         <input id="set-url" placeholder="https://erp.mycompany.com" autocomplete="off"></label>
       <label class="field"><span>API key</span>
@@ -129,6 +130,16 @@
         <span>Match strictness (<span id="threshold-value">0.72</span>) — higher = fewer false matches</span>
         <input id="set-threshold" type="range" min="0.5" max="0.9" step="0.01" value="0.72">
       </label>
+
+      <h3>Staff setup</h3>
+      <div class="btn-row">
+        <button id="btn-copy-setup" class="btn">🔗 Copy one-tap setup link</button>
+        <button id="btn-show-qr" class="btn ghost">📱 Show setup QR</button>
+      </div>
+      <div id="setup-qr" class="qr hidden"></div>
+      <p class="hint">The link (or QR) opens this app with the ERPNext connection pre-filled and syncs the
+        catalog automatically — one tap per staff phone. It contains the API key &amp; secret, so share it
+        privately with staff only.</p>
 
       <h3>Training data</h3>
       <div class="btn-row">

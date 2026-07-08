@@ -659,6 +659,82 @@ async function importTraining(file) {
   }
 }
 
+// -------------------------------------------------- one-tap staff setup
+
+function encodeSetup(o) {
+  return btoa(JSON.stringify(o)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+function decodeSetup(s) {
+  return JSON.parse(atob(s.replace(/-/g, '+').replace(/_/g, '/')));
+}
+
+// #setup=<base64url JSON> — applies connection settings on open (the hash
+// fragment never leaves the browser, so credentials don't hit server logs).
+function applySetupFromHash() {
+  const m = location.hash.match(/^#setup=(.+)$/);
+  if (!m) return false;
+  try {
+    const cfg = decodeSetup(m[1]);
+    if (!cfg.url || !cfg.apiKey || !cfg.apiSecret) throw new Error('missing fields');
+    const cur = erp.getSettings();
+    erp.saveSettings({ threshold: cur.threshold ?? 0.72, ...cur, ...cfg });
+    history.replaceState(null, '', location.pathname);
+    toast('Connection settings applied ✔', 'ok');
+    return true;
+  } catch {
+    history.replaceState(null, '', location.pathname);
+    toast('Invalid setup link', 'error');
+    return false;
+  }
+}
+
+function setupLink() {
+  const c = erp.getSettings();
+  if (!c.url || !c.apiKey || !c.apiSecret) {
+    toast('Save a working connection first (URL, key, secret).', 'warn');
+    return null;
+  }
+  return location.origin + location.pathname + '#setup=' +
+    encodeSetup({ url: c.url, apiKey: c.apiKey, apiSecret: c.apiSecret, company: c.company || '' });
+}
+
+function loadScript(src) {
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = src;
+    s.onload = resolve;
+    s.onerror = () => reject(new Error('Could not load QR library (offline?)'));
+    document.head.appendChild(s);
+  });
+}
+
+async function showSetupQr() {
+  const link = setupLink();
+  if (!link) return;
+  const box = $('setup-qr');
+  if (!box.classList.contains('hidden')) {
+    box.classList.add('hidden');
+    return;
+  }
+  try {
+    if (typeof QRCode === 'undefined') {
+      await loadScript('https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js');
+    }
+    box.innerHTML = '';
+    new QRCode(box, {
+      text: link,
+      width: 220,
+      height: 220,
+      colorDark: '#000000',
+      colorLight: '#ffffff',
+      correctLevel: QRCode.CorrectLevel.M,
+    });
+    box.classList.remove('hidden');
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+}
+
 // -------------------------------------------------------------------- init
 
 function bind() {
@@ -696,6 +772,14 @@ function bind() {
   $('set-threshold').addEventListener('input', (e) => {
     $('threshold-value').textContent = e.target.value;
   });
+  $('btn-copy-setup').addEventListener('click', () => {
+    const link = setupLink();
+    if (!link) return;
+    navigator.clipboard.writeText(link)
+      .then(() => toast('Setup link copied — share it privately with staff phones', 'ok'))
+      .catch(() => { prompt('Copy the setup link:', link); });
+  });
+  $('btn-show-qr').addEventListener('click', showSetupQr);
   $('btn-export-training').addEventListener('click', exportTraining);
   $('import-training-file').addEventListener('change', (e) => {
     if (e.target.files[0]) importTraining(e.target.files[0]);
@@ -705,11 +789,17 @@ function bind() {
 
 async function init() {
   bind();
+  const fromSetupLink = applySetupFromHash();
   loadSettingsForm();
   await loadCatalog();
   await rebuildClassifier();
   renderTrainSummary();
   showView('audit');
+  if (fromSetupLink) {
+    // One-tap onboarding: connect and pull the catalog automatically.
+    showView('settings');
+    testConnection().then(() => syncFromErpNext()).catch(() => {});
+  }
   // Preload AI in the background so the first scan starts instantly.
   ensureModels().catch(() => {});
   if ('serviceWorker' in navigator) {
